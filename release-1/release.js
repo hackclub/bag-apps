@@ -139,16 +139,13 @@ async function parse() {
 
 export const testers = {
   jc: 'U03MNFDRSGJ',
-  jc_1: 'U05TXCSCK7E',
-  chris: 'UDK5M9Y13',
-  kara: 'U032A2PMSE9',
-  max: 'U0C7B14Q3'
+  jc_1: 'U05TXCSCK7E'
 }
 
 async function main() {
   setup().then(() => {
     parse().then(async slackers => {
-      console.log('Done')
+      console.log('Loaded Slackers')
 
       const app = await App.connect({
         appId: Number(process.env.APP_ID),
@@ -163,21 +160,9 @@ async function main() {
         })
       ).items
 
-      // for (let [key, id] of Object.entries(testers)) {
-      //     let identity = await app.readIdentity({
-      //         identityId: id
-      //     });
-      //     for (let instance of identity.identity.inventory) {
-      //         console.log(
-      //             await app.deleteInstance({
-      //                 instanceId: instance.id
-      //             })
-      //         );
-      //     }
-      // }
-
       // Let's go through ever Hack Clubber that has posted at least one message in the last week and give them some items based on a probability distribution!
-      for (let [key, id] of Object.entries(testers)) {
+      for (let slacker of slackers) {
+        const { id } = slacker
         let instances = []
         for (let item of items.sort((a, b) => (Math.random() < 0.5 ? 1 : -1))) {
           const prob = Math.random()
@@ -188,7 +173,7 @@ async function main() {
               identityId: id,
               quantity: 1
             })
-            break
+            if (instances.length === 3) break
           }
         }
         await app.createInstances({
@@ -200,18 +185,8 @@ async function main() {
         console.log(instances)
       }
 
-      for (let item of items) {
-        // Remove the rarity metadata!
-        await app.updateItem({
-          itemId: item.name,
-          new: {
-            metadata: JSON.stringify({})
-          }
-        })
-      }
-
       // Currently every minute... set to every day
-      const task = cron.schedule('* * * * *', async () => {
+      const task = cron.schedule('0 10 * * *', async () => {
         day++
 
         const app = await App.connect({
@@ -257,4 +232,4 @@ async function main() {
   })
 }
 
-// main();
+main()
