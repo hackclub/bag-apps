@@ -12,7 +12,8 @@ let bag
 
 const canSell = {
   'Fancy Pants': 30,
-  'Cake': 50
+  'Cake': 50,
+  'Ruby': 10
 }
 
 const storeChannel = 'C04ET84B9UH'
@@ -20,7 +21,7 @@ const storeChannel = 'C04ET84B9UH'
 const showStore = async (slack, thread) => {
   const app = await bag.getApp()
   const identity = await bag.getIdentity({ identityId: slack })
-  let cart
+  let cart = undefined
   if (identity.metadata.jcStoreCart && identity.metadata.jcStoreCart.id)
     cart = await bag.getTrade({
       tradeId: identity.metadata.jcStoreCart.id
@@ -116,7 +117,7 @@ const showStore = async (slack, thread) => {
     })
   else {
     let cartToString = []
-    for (let cart of cart.receiverTrades) {
+    for (let order of cart.receiverTrades) {
       const { instance } = order
       const item = await bag.getItem({
         query: JSON.stringify({ name: instance.itemId })
@@ -142,7 +143,8 @@ const showStore = async (slack, thread) => {
               id: instance.id,
               quantity: order.quantity
             }
-          })
+          }),
+          action_id: 'remove-cart'
         }
       })
     }
@@ -190,6 +192,8 @@ const showStore = async (slack, thread) => {
     )
   }
 
+  console.log('Blocks', blocks)
+
   return blocks
 }
 
@@ -207,10 +211,12 @@ app.event('app_mention', async props => {
   })
 
   if (user.metadata.jcStoreCart !== null) {
-    // There's already a previous thread, delete that thread before creating a new one
-    await props.client.chat.delete({
-      ...user.metadata.jcStoreCart.thread
-    })
+    try {
+      // There's already a previous thread, delete that thread before creating a new one
+      await props.client.chat.delete({
+        ...user.metadata.jcStoreCart.thread
+      })
+    } catch {}
   }
 
   const { channel, ts } = await props.client.chat.postMessage({
@@ -225,10 +231,12 @@ app.event('app_mention', async props => {
     })
   })
 
+  console.log('Updating message')
+
   await props.client.chat.update({
     channel,
     ts,
-    block: await showStore(props.context.userId, { channel, ts })
+    blocks: await showStore(props.context.userId, { channel, ts })
   })
 })
 
@@ -241,6 +249,8 @@ app.action('remove-cart', async props => {
       replace_original: false,
       text: 'Not your shopping cart, unfortunately.'
     })
+
+  console.log(instance)
 
   const user = await bag.getIdentity({ identityId: slack })
 
@@ -324,9 +334,9 @@ app.view('add-cart', async props => {
 
   // Check if user has enough gp
   const cost = canSell[instance.name] * quantity
-  let(await bag.getInventory({ identityId: props.context.userId })).filter(
-    instance => instance.itemId === 'gp'
-  )
+  let gp = (
+    await bag.getInventory({ identityId: props.context.userId })
+  ).filter(instance => instance.itemId === 'gp')
   if (!gp.length || gp[0] < cost)
     return await props.respond({
       response_type: 'ephemeral',
@@ -375,7 +385,7 @@ app.view('add-cart', async props => {
 
     await bag.updateTrade({
       tradeId: identity.metadata.jcStoreCart.id,
-      identityId: props.context.ME,
+      identityId: process.env.ME,
       add: [{ id: instance.id, quantity }]
     })
   }
@@ -389,6 +399,12 @@ app.view('add-cart', async props => {
 app.action('cancel-checkout', async props => {
   await props.ack()
   const { thread, slack } = JSON.parse(props.action.value)
+  if (slack !== props.context.userId)
+    return props.respond({
+      response_type: 'ephemeral',
+      replace_original: false,
+      text: 'Not your shopping cart, unfortunately.'
+    })
   const user = await bag.getIdentity({ identityId: slack })
 
   await bag.closeTrade({
@@ -428,12 +444,16 @@ app.action('checkout', async props => {
     tradeId: user.metadata.jcStoreCart.id
   })
 
+  await bag.updateIdentityMetadata({
+    identityId: slack,
+    metadata: JSON.stringify({ jcStoreCart: { id: null } })
+  })
+
   let purchased = []
   for (let purchase of sale.receiverTrades) {
     const instance = await bag.getInstance({
       instanceId: purchase.instanceId
     })
-    console.log(instance)
     purchased.push(
       `x${purchase.quantity} ${instance.item.reaction} ${instance.item.name}`
     )
@@ -446,9 +466,9 @@ app.action('checkout', async props => {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `Thanks <@${slack}> for stopping by! Here's what you got:
-          
-${sale.n}`
+          text: `Thanks <@${slack}> for stopping by! Here's what you got:\n\n${purchased.join(
+            '\n'
+          )}`
         }
       },
       {

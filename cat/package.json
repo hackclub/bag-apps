@@ -1,17 +1,17 @@
 {
-  "name": "store",
+  "name": "cat",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "nodemon index.js",
+    "start": "nodemon new.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@hackclub/bag": "file:~/hackclub-bag-1.0.41.tgz",
+    "@hackclub/bag": "file:~/hackclub-bag-1.0.36.tgz",
     "@slack/bolt": "^3.17.1",
     "dotenv": "^16.4.5"
   },

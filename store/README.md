@@ -1,3 +1,5 @@
+This is what the general store at [#general-store]() relies on!
+
 should be able to set up list of items to sell
 
 should have visual interface for selling items, in channel for example
