@@ -12,19 +12,15 @@ let bag
 
 const canSell = {
   'Fancy Pants': 30,
-  'Cake': 50,
-  'Ruby': 10
+  'Cake': 50
 }
-
-const storeChannel = 'C04ET84B9UH'
 
 const showStore = async (slack, thread) => {
   const app = await bag.getApp()
-  const identity = await bag.getIdentity({ identityId: slack })
   let cart = undefined
-  if (identity.metadata.jcStoreCart && identity.metadata.jcStoreCart.id)
+  if (app.metadata[slack] && app.metadata[slack].id)
     cart = await bag.getTrade({
-      tradeId: identity.metadata.jcStoreCart.id
+      tradeId: app.metadata[slack].id
     })
 
   let blocks = [
@@ -192,29 +188,17 @@ const showStore = async (slack, thread) => {
     )
   }
 
-  console.log('Blocks', blocks)
-
   return blocks
 }
 
 app.event('app_mention', async props => {
-  // Check in channel
-  // if (props.event.channel !== storeChannel)
-  //   return await props.client.chat.postEphemeral({
-  //     channel: props.event.channel,
-  //     user: props.context.userId,
-  //     text: `I don't see <@${props.context.botUserId}> anywhere around here... wait, are we holding the map upside down? It's in <#${storeChannel}>.`
-  //   })
+  const app = await bag.getApp()
 
-  const user = await bag.getIdentity({
-    identityId: props.context.userId
-  })
-
-  if (user.metadata.jcStoreCart !== null) {
+  if (app.metadata[props.context.userId] !== null) {
     try {
       // There's already a previous thread, delete that thread before creating a new one
       await props.client.chat.delete({
-        ...user.metadata.jcStoreCart.thread
+        ...app.metadata[props.context.userId].thread
       })
     } catch {}
   }
@@ -224,58 +208,21 @@ app.event('app_mention', async props => {
     blocks: await showStore(props.context.userId)
   })
 
-  await bag.updateIdentityMetadata({
-    identityId: props.context.userId,
-    metadata: JSON.stringify({
-      jcStoreCart: { thread: { channel, ts } }
-    })
+  // Add channel and thread to our metadata
+  await bag.updateApp({
+    new: {
+      metadata: JSON.stringify({
+        [props.context.userId]: {
+          thread: { channel, ts }
+        }
+      })
+    }
   })
-
-  console.log('Updating message')
 
   await props.client.chat.update({
     channel,
     ts,
     blocks: await showStore(props.context.userId, { channel, ts })
-  })
-})
-
-app.action('remove-cart', async props => {
-  await props.ack()
-  const { instance, thread, slack } = JSON.parse(props.action.value)
-  if (slack !== props.context.userId)
-    return props.respond({
-      response_type: 'ephemeral',
-      replace_original: false,
-      text: 'Not your shopping cart, unfortunately.'
-    })
-
-  console.log(instance)
-
-  const user = await bag.getIdentity({ identityId: slack })
-
-  // Remove from cart
-  const cart = await bag.updateTrade({
-    tradeId: user.metadata.jcStoreCart.id,
-    identityId: process.env.ME,
-    remove: [{ id: instance.id, quantity: instance.quantity }]
-  })
-
-  // Update gp
-  await bag.updateTrade({
-    tradeId: user.metadata.jcStoreCart.id,
-    identityId: props.context.userId,
-    remove: [
-      {
-        id: cart.initiatorTrades[0].instanceId, // gp tradeInstance id
-        quantity: canSell[instance.name] * instance.quantity
-      }
-    ]
-  })
-
-  return await props.client.chat.update({
-    ...thread,
-    blocks: await showStore(slack, thread)
   })
 })
 
@@ -311,8 +258,8 @@ app.action('add-cart', async props => {
             is_decimal_allowed: false,
             action_id: 'quantity',
             min_value: '1',
-            max_value: instance.quantity.toString(),
-            initial_value: '1'
+            initial_value: '1',
+            max_value: instance.quantity.toString()
           },
           label: {
             type: 'plain_text',
@@ -346,11 +293,11 @@ app.view('add-cart', async props => {
   gp = gp[0]
 
   // Check cart
-  const identity = await bag.getIdentity({ identityId: slack })
-  if (!identity.metadata.jcStoreCart.id) {
+  const app = await bag.getApp()
+  if (!app.metadata[props.context.userId].id) {
     // First item in cart
-    let cart = await bag.createTrade({
-      initiator: props.context.userId, // User is the one initiating it
+    const cart = await bag.createTrade({
+      initiator: props.context.userId,
       receiver: process.env.ME
     })
 
@@ -366,25 +313,26 @@ app.view('add-cart', async props => {
       add: [{ id: instance.id, quantity }]
     })
 
-    await bag.updateIdentityMetadata({
-      identityId: props.context.userId,
-      metadata: JSON.stringify({
-        jcStoreCart: {
-          ...identity.metadata.jcStoreCart,
-          id: cart.id
-        }
-      })
+    await bag.updateApp({
+      new: {
+        metadata: JSON.stringify({
+          [props.context.userId]: {
+            ...app.metadata[props.context.userId],
+            id: cart.id
+          }
+        })
+      }
     })
   } else {
     // Add item to cart
     await bag.updateTrade({
-      tradeId: identity.metadata.jcStoreCart.id,
+      tradeId: app.metadata[props.context.userId].id,
       identityId: props.context.userId,
       add: [{ id: gp.id, quantity: cost }]
     })
 
     await bag.updateTrade({
-      tradeId: identity.metadata.jcStoreCart.id,
+      tradeId: app.metadata[props.context.userId].id,
       identityId: process.env.ME,
       add: [{ id: instance.id, quantity }]
     })
@@ -393,38 +341,6 @@ app.view('add-cart', async props => {
   await props.client.chat.update({
     ...thread,
     blocks: await showStore(slack, thread)
-  })
-})
-
-app.action('cancel-checkout', async props => {
-  await props.ack()
-  const { thread, slack } = JSON.parse(props.action.value)
-  if (slack !== props.context.userId)
-    return props.respond({
-      response_type: 'ephemeral',
-      replace_original: false,
-      text: 'Not your shopping cart, unfortunately.'
-    })
-  const user = await bag.getIdentity({ identityId: slack })
-
-  await bag.closeTrade({
-    tradeId: user.metadata.jcStoreCart.id,
-    cancel: true
-  })
-
-  await bag.updateIdentityMetadata({
-    identityId: slack,
-    metadata: JSON.stringify({ jcStoreCart: null })
-  })
-
-  await props.client.chat.delete({
-    ...thread
-  })
-
-  await props.client.chat.postEphemeral({
-    channel: thread.channel,
-    user: props.context.userId,
-    text: 'Aww. Come by next time?'
   })
 })
 
@@ -438,15 +354,32 @@ app.action('checkout', async props => {
       text: 'Not your shopping cart, unfortunately.'
     })
 
-  const user = await bag.getIdentity({ identityId: slack })
+  const app = await bag.getApp()
+
+  // Check if user has enough gp
+  const cart = await bag.getTrade({
+    tradeId: app.metadata[props.context.userId].id
+  })
+  const gp = cart.initiatorTrades[0].quantity
+  const cost = cart.receiverTrades.reduce(
+    (acc, curr) => acc + canSell[curr.instance.itemId] * curr.quantity,
+    0
+  )
+  if (gp < cost)
+    return props.respond({
+      response_type: 'ephemeral',
+      replace_original: false,
+      text: "Looks like you can't spare that kind of :-gp: yet... try taking a few items off."
+    })
 
   const sale = await bag.closeTrade({
-    tradeId: user.metadata.jcStoreCart.id
+    tradeId: app.metadata[props.context.userId].id
   })
 
-  await bag.updateIdentityMetadata({
-    identityId: slack,
-    metadata: JSON.stringify({ jcStoreCart: { id: null } })
+  await bag.updateApp({
+    new: JSON.stringify({
+      [props.context.userId]: null
+    })
   })
 
   let purchased = []
@@ -485,12 +418,73 @@ app.action('checkout', async props => {
   })
 })
 
+app.action('cancel-checkout', async props => {
+  await props.ack()
+  const { thread, slack } = JSON.parse(props.action.value)
+  const app = await bag.getApp()
+
+  await bag.closeTrade({
+    tradeId: app.metadata[props.context.userId].id,
+    cancel: true
+  })
+
+  await bag.updateApp({
+    new: JSON.stringify({
+      [props.context.userId]: null
+    })
+  })
+
+  await props.client.chat.delete({
+    ...thread
+  })
+
+  await props.client.chat.postEphemeral({
+    channel: thread.channel,
+    user: props.context.userId,
+    text: 'Aww. Come by next time?'
+  })
+})
+
+app.action('remove-cart', async props => {
+  await props.ack()
+  const { instance, thread, slack } = JSON.parse(props.action.value)
+  if (slack !== props.context.userId)
+    return props.respond({
+      response_type: 'ephemeral',
+      replace_original: false,
+      text: 'Not your shopping cart, unfortunately.'
+    })
+
+  // Remove from cart
+  const cart = await bag.updateTrade({
+    tradeId: app.metadata[props.context.userId].id,
+    identityId: process.env.ME,
+    remove: [{ id: instance.id, quantity: instance.quantity }]
+  })
+
+  // Update gp
+  await bag.updateTrade({
+    tradeId: app.metadata[props.context.userId].id,
+    identityId: props.context.userId,
+    remove: [
+      {
+        id: cart.initiatorTrades[0].instanceId, // gp tradeInstance id
+        quantity: canSell[instance.name] * instance.quantity
+      }
+    ]
+  })
+
+  return await props.client.chat.update({
+    ...thread,
+    blocks: await showStore(slack, thread)
+  })
+})
+
 // @prettier-ignore
 ;(async () => {
   bag = await Bag.connect({
     appId: Number(process.env.BAG_APP_ID),
-    key: process.env.BAG_APP_KEY,
-    baseUrl: 'https://c70f-71-235-174-134.ngrok-free.app'
+    key: process.env.BAG_APP_KEY
   })
 
   const port = process.env.PORT || 3002

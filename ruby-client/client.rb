@@ -37,7 +37,7 @@ class Client
   end
 
   def format(obj)
-    obj = obj.to_h 
+    obj = obj.to_h
     if obj[:response].length != 0
       raise obj[:response]
     end
@@ -98,7 +98,7 @@ class Client
     end
   end
 
-  def create_recipe(request) 
+  def create_recipe(request)
     begin
       resp = @client.create_recipe(Bag::CreateRecipeRequest.new(@request.merge(request)))
       return format(resp)
@@ -180,7 +180,7 @@ class Client
   end
 
   def read_recipes(request)
-    begin 
+    begin
       resp = @client.read_recipes(Bag::ReadRecipesRequest(@request.merge(request)))
       return format(resp)
     rescue GRPC::BadStatus => e
@@ -295,6 +295,3 @@ class Client
   end
 end
 
-client = Client.new({ app_id: 1, key: "e0022b70-a6a4-4c85-91a7-eef1a1055081", host: "localhost:3000" })
-hat = client.read_items({ query: { name: "Hat" }.to_json })[:items][0]
-p hat[:description]

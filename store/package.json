@@ -11,7 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@hackclub/bag": "file:~/hackclub-bag-1.0.41.tgz",
+    "@hackclub/bag": "^2.0.1",
     "@slack/bolt": "^3.17.1",
     "dotenv": "^16.4.5"
   },

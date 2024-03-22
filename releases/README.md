@@ -1,0 +1,1 @@
+Warning: the code in these folders worked with previous versions of `@hackclub/bag` and may not work with the current version.
